@@ -29,7 +29,7 @@ class DatabaseService {
         {
           'action': 'created',
           'message': 'تم إنشاء السند وإدخاله في النظام بواسطة المحصل',
-          'timestamp': FieldValue.serverTimestamp(),
+          'timestamp': Timestamp.fromDate(transaction.timestamp),
         }
       ];
 
