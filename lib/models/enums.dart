@@ -1,5 +1,6 @@
 // أدوار المستخدمين
 enum UserRole { 
+  admin, // تمت إضافة دور مسؤول النظام
   collector,
   manager,
   accountant

@@ -3,7 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:store_collection_app/models/enums.dart'; 
 import 'package:store_collection_app/models/transaction_model.dart'; 
-import 'package:store_collection_app/services/database_service.dart'; // استيراد ملف السيرفس الجديد
+import 'package:store_collection_app/services/database_service.dart'; 
 import 'package:intl/intl.dart' hide TextDirection;
 import 'package:flutter/services.dart';
 
@@ -24,16 +24,32 @@ class _NewTransactionScreenState extends State<NewTransactionScreen> {
   DateTime? _dateFrom;
   DateTime? _dateTo;
   bool _isLoading = false;
-  String _selectedCurrency = 'YER'; // القيمة الافتراضية
+  String _selectedCurrency = 'YER';
 
-  // دالة اختيار التاريخ
+  // دالة اختيار التاريخ بذكاء لمنع التواريخ المتعارضة
   Future<void> _selectDate(BuildContext context, bool isFromDate) async {
+    DateTime initialDate = DateTime.now();
+    DateTime firstDate = DateTime(2020);
+    DateTime lastDate = DateTime.now().add(const Duration(days: 365));
+
+    // تقييد التواريخ المسموحة بناءً على الاختيار الآخر
+    if (isFromDate) {
+      if (_dateTo != null) lastDate = _dateTo!; // تاريخ البداية لا يمكن أن يتجاوز تاريخ النهاية
+      initialDate = _dateFrom ?? DateTime.now();
+      if (initialDate.isAfter(lastDate)) initialDate = lastDate;
+    } else {
+      if (_dateFrom != null) firstDate = _dateFrom!; // تاريخ النهاية لا يمكن أن يكون قبل تاريخ البداية
+      initialDate = _dateTo ?? _dateFrom ?? DateTime.now();
+      if (initialDate.isBefore(firstDate)) initialDate = firstDate;
+    }
+
     final DateTime? picked = await showDatePicker(
       context: context,
-      initialDate: DateTime.now(),
-      firstDate: DateTime(2020),
-      lastDate: DateTime.now().add(const Duration(days: 365)),
+      initialDate: initialDate,
+      firstDate: firstDate,
+      lastDate: lastDate,
     );
+    
     if (picked != null) {
       setState(() {
         if (isFromDate) {
@@ -45,7 +61,7 @@ class _NewTransactionScreenState extends State<NewTransactionScreen> {
     }
   }
 
-  // دالة حفظ السند باستخدام DatabaseService
+  // دالة حفظ السند
   Future<void> _saveTransaction() async {
     if (_amountController.text.isEmpty || _dateFrom == null || _dateTo == null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -54,6 +70,7 @@ class _NewTransactionScreenState extends State<NewTransactionScreen> {
       return;
     }
 
+    // فحص احتياطي (وإن كانت واجهة التقويم تمنع ذلك الآن)
     if (_dateTo!.isBefore(_dateFrom!)) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('تاريخ (إلى) يجب أن يكون بعد أو يساوي تاريخ (من)')),
@@ -65,13 +82,8 @@ class _NewTransactionScreenState extends State<NewTransactionScreen> {
 
     try {
       final String uid = FirebaseAuth.instance.currentUser!.uid;
-      // توليد معرف مستند فريد من Firestore تلقائياً
       final docRef = FirebaseFirestore.instance.collection('transactions').doc();
-      
-      // توليد رقم سند فريد
       final String trnNumber = 'TRN-${DateTime.now().millisecondsSinceEpoch.toString().substring(5)}';
-
-      // التقاط الوقت الفعلي لحظة الحفظ
       final DateTime now = DateTime.now();
 
       final transaction = TransactionModel(
@@ -87,9 +99,9 @@ class _NewTransactionScreenState extends State<NewTransactionScreen> {
         notes: _notesController.text.trim(),
         status: TransactionStatus.pending, 
         timestamp: now,
+        history: [],
       );
 
-      // استدعاء السيرفيس الجديد لحفظ البيانات
       await DatabaseService().addTransaction(transaction);
 
       if (mounted) {
@@ -130,7 +142,6 @@ class _NewTransactionScreenState extends State<NewTransactionScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              // 1. إدخال المبلغ والعملة
               Card(
                 elevation: 2,
                 child: Padding(
@@ -171,7 +182,6 @@ class _NewTransactionScreenState extends State<NewTransactionScreen> {
               ),
               const SizedBox(height: 20),
 
-              // 2. تحديد فترة التحصيل
               Card(
                 elevation: 2,
                 child: Padding(
@@ -214,7 +224,6 @@ class _NewTransactionScreenState extends State<NewTransactionScreen> {
               ),
               const SizedBox(height: 20),
 
-              // 3. ملاحظات
               Card(
                 elevation: 2,
                 child: Padding(
@@ -232,7 +241,6 @@ class _NewTransactionScreenState extends State<NewTransactionScreen> {
               ),
               const SizedBox(height: 30),
 
-              // 4. زر الحفظ
               SizedBox(
                 height: 55,
                 child: ElevatedButton(
@@ -272,7 +280,6 @@ class ThousandsSeparatorInputFormatter extends TextInputFormatter {
       formatted += '.${parts[1]}';
     }
 
-    // حساب موقع المؤشر الجديد ذكياً بناءً على الفواصل المضافة أو المحذوفة
     int commasBefore = 0;
     for (int i = 0; i < newValue.selection.end && i < newValue.text.length; i++) {
       if (newValue.text[i] == ',') commasBefore++;

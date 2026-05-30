@@ -2,15 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-// استدعاء النماذج
 import 'package:store_collection_app/models/user_model.dart';
 import 'package:store_collection_app/models/enums.dart';
 
-// مسارات الشاشات الجديدة بعد الترتيب
 import 'package:store_collection_app/screens/auth/login_screen.dart';
-import 'package:store_collection_app/screens/dashboards/collector_dashboard.dart';
+import 'package:store_collection_app/screens/dashboards/collector_branches_screen.dart';
 import 'package:store_collection_app/screens/dashboards/manager_dashboard.dart';
-import 'package:store_collection_app/screens/dashboards/accountant_dashboard.dart';
+import 'package:store_collection_app/screens/dashboards/accountant_branches_screen.dart'; // تم إضافة هذا السطر
+import 'package:store_collection_app/screens/dashboards/admin_dashboard.dart'; 
 
 class AuthGate extends StatelessWidget {
   const AuthGate({super.key});
@@ -20,12 +19,10 @@ class AuthGate extends StatelessWidget {
     return StreamBuilder<User?>(
       stream: FirebaseAuth.instance.authStateChanges(),
       builder: (context, snapshot) {
-        // أثناء التحقق من حالة المستخدم
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Scaffold(body: Center(child: CircularProgressIndicator()));
         }
 
-        // إذا كان المستخدم مسجلاً للدخول بالفعل
         if (snapshot.hasData && snapshot.data != null) {
           return FutureBuilder<DocumentSnapshot>(
             future: FirebaseFirestore.instance.collection('users').doc(snapshot.data!.uid).get(),
@@ -35,21 +32,51 @@ class AuthGate extends StatelessWidget {
               }
 
               if (roleSnapshot.hasData && roleSnapshot.data!.exists) {
-                // هنا نستخدم UserModel الذي قمت أنت ببرمجته!
                 UserModel user = UserModel.fromJson(roleSnapshot.data!.data() as Map<String, dynamic>);
                 
-                // التوجيه الذكي بناءً على الـ enum
                 switch (user.role) {
+                  case UserRole.admin:
+                    return const AdminDashboard();
                   case UserRole.collector:
-                    return CollectorDashboard();
-                  case UserRole.manager:
-                    return ManagerDashboard();
+                    return const CollectorBranchesScreen();
                   case UserRole.accountant:
-                    return AccountantDashboard();
+                    return const AccountantBranchesScreen(); // تحديث التوجيه للمحاسب
+                  case UserRole.manager:
+                    if (user.branchId == null || user.branchId!.isEmpty) {
+                      return Scaffold(
+                        appBar: AppBar(title: const Text('تنبيه')),
+                        body: Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              const Text('حسابك كمدير غير مربوط بأي فرع حالياً. تواصل مع الإدارة.'),
+                              const SizedBox(height: 20),
+                              ElevatedButton(
+                                onPressed: () async {
+                                  await FirebaseAuth.instance.signOut();
+                                },
+                                child: const Text('تسجيل الخروج')
+                              )
+                            ],
+                          ),
+                        ),
+                      );
+                    }
+                    return FutureBuilder<DocumentSnapshot>(
+                      future: FirebaseFirestore.instance.collection('branches').doc(user.branchId).get(),
+                      builder: (context, branchSnap) {
+                        if (branchSnap.connectionState == ConnectionState.waiting) return const Scaffold(body: Center(child: CircularProgressIndicator()));
+                        
+                        String branchName = 'الفرع غير معروف';
+                        if (branchSnap.hasData && branchSnap.data!.exists) {
+                          branchName = branchSnap.data!.get('name');
+                        }
+                        return ManagerDashboard(branchId: user.branchId!, branchName: branchName);
+                      },
+                    );
                 }
               }
 
-              // في حال وجود حساب مسجل ولكن بلا بيانات في Firestore
               return Scaffold(
                 body: Center(
                   child: Column(
@@ -58,7 +85,9 @@ class AuthGate extends StatelessWidget {
                       const Text('لا توجد بيانات لهذا المستخدم أو تم حذفها.'),
                       const SizedBox(height: 10),
                       ElevatedButton(
-                        onPressed: () => FirebaseAuth.instance.signOut(),
+                        onPressed: () async {
+                          await FirebaseAuth.instance.signOut();
+                        },
                         child: const Text('تسجيل الخروج'),
                       )
                     ],
@@ -69,7 +98,6 @@ class AuthGate extends StatelessWidget {
           );
         }
 
-        // إذا لم يكن مسجلاً للدخول
         return const LoginScreen();
       },
     );

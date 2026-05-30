@@ -16,98 +16,69 @@ class ManagerApprovalsScreen extends StatefulWidget {
 class _ManagerApprovalsScreenState extends State<ManagerApprovalsScreen> {
   final DatabaseService _dbService = DatabaseService();
 
-  // 1. دالة اعتماد السند
-  Future<void> _approveTransaction(String transactionId, String trnNumber) async {
+  // --- دوال تبويبة الطلبات الجديدة ---
+  
+  Future<void> _approveNewTransaction(String transactionId, String trnNumber) async {
+    _showLoadingDialog();
     try {
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (context) => const Center(child: CircularProgressIndicator()),
-      );
-
       await _dbService.updateTransactionStatus(
         transactionId: transactionId,
         newStatus: 'approvedByManager',
       );
-
-      if (mounted) {
-        Navigator.pop(context); // إغلاق التحميل
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('تم اعتماد السند رقم $trnNumber بنجاح'), backgroundColor: Colors.green),
-        );
-      }
+      _closeLoadingAndShowSnackBar('تم اعتماد السند رقم $trnNumber بنجاح', Colors.green);
     } catch (e) {
-      if (mounted) {
-        Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('حدث خطأ أثناء الاعتماد: $e'), backgroundColor: Colors.red),
-        );
-      }
+      _closeLoadingAndShowSnackBar('حدث خطأ أثناء الاعتماد', Colors.red);
     }
   }
 
-  // 2. دالة رفض السند
-  Future<void> _rejectTransaction(String transactionId, String trnNumber) async {
+  Future<void> _rejectTransaction(String transactionId, String trnNumber, String actionType) async {
     TextEditingController notesController = TextEditingController();
+    
+    // actionType: 'reject' (رفض نهائي) أو 'edit' (طلب تعديل من المحصل)
+    bool isReject = actionType == 'reject';
 
     await showDialog(
       context: context,
       builder: (context) {
         return AlertDialog(
-          title: const Text('رفض السند', style: TextStyle(color: Colors.red)),
+          title: Text(isReject ? 'رفض السند' : 'طلب تعديل السند', 
+                      style: TextStyle(color: isReject ? Colors.red : Colors.orange)),
           content: TextField(
             controller: notesController,
             maxLines: 3,
-            decoration: const InputDecoration(
-              hintText: 'اكتب سبب الرفض هنا ليراه المحصل...',
-              border: OutlineInputBorder(),
+            decoration: InputDecoration(
+              hintText: isReject ? 'اكتب سبب الرفض هنا...' : 'اكتب التعديلات المطلوبة (مثال: تأكد من المبلغ)...',
+              border: const OutlineInputBorder(),
             ),
           ),
           actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('إلغاء'),
-            ),
+            TextButton(onPressed: () => Navigator.pop(context), child: const Text('إلغاء')),
             ElevatedButton(
-              style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+              style: ElevatedButton.styleFrom(backgroundColor: isReject ? Colors.red : Colors.orange),
               onPressed: () async {
                 if (notesController.text.trim().isEmpty) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('يجب إدخال سبب الرفض')),
-                  );
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('الرجاء إدخال السبب/الملاحظة')));
                   return;
                 }
                 
                 Navigator.pop(context);
-                showDialog(
-                  context: context,
-                  barrierDismissible: false,
-                  builder: (context) => const Center(child: CircularProgressIndicator()),
-                );
+                _showLoadingDialog();
 
                 try {
                   await _dbService.updateTransactionStatus(
                     transactionId: transactionId,
-                    newStatus: 'rejectedByManager',
+                    newStatus: isReject ? 'rejectedByManager' : 'editRequestedByCollector',
                     managerNotes: notesController.text.trim(),
                   );
-                  
-                  if (mounted) {
-                    Navigator.pop(context);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('تم رفض السند $trnNumber'), backgroundColor: Colors.red),
-                    );
-                  }
+                  _closeLoadingAndShowSnackBar(
+                    isReject ? 'تم رفض السند $trnNumber' : 'تم إرسال طلب تعديل للسند $trnNumber', 
+                    isReject ? Colors.red : Colors.orange
+                  );
                 } catch (e) {
-                  if (mounted) {
-                    Navigator.pop(context);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('حدث خطأ أثناء الرفض'), backgroundColor: Colors.red),
-                    );
-                  }
+                  _closeLoadingAndShowSnackBar('حدث خطأ أثناء تنفيذ العملية', Colors.red);
                 }
               },
-              child: const Text('تأكيد الرفض', style: TextStyle(color: Colors.white)),
+              child: Text(isReject ? 'تأكيد الرفض' : 'إرسال للمحصل', style: const TextStyle(color: Colors.white)),
             ),
           ],
         );
@@ -115,234 +86,286 @@ class _ManagerApprovalsScreenState extends State<ManagerApprovalsScreen> {
     );
   }
 
-  // 3. دالة طلب تعديل من المحصل (الجديدة)
-  Future<void> _requestEditTransaction(String transactionId, String trnNumber) async {
-    TextEditingController notesController = TextEditingController();
+  // --- دوال تبويبة طلبات التعديل ---
 
-    await showDialog(
+  Future<void> _approveEdit(String transactionId, String trnNumber, Map<String, dynamic> pendingData) async {
+    _showLoadingDialog();
+    try {
+      await _dbService.approveEditRequest(
+        transactionId: transactionId,
+        pendingData: pendingData,
+      );
+      _closeLoadingAndShowSnackBar('تم اعتماد التعديلات للسند $trnNumber بنجاح', Colors.green);
+    } catch (e) {
+      _closeLoadingAndShowSnackBar('حدث خطأ أثناء اعتماد التعديلات', Colors.red);
+    }
+  }
+
+  Future<void> _rejectEdit(String transactionId, String trnNumber) async {
+    // إذا رفض المدير التعديل، نعيد السند إلى المحصل ليقوم بتعديله مجدداً
+    _showLoadingDialog();
+    try {
+      await _dbService.updateTransactionStatus(
+        transactionId: transactionId,
+        newStatus: 'editRequestedByCollector',
+        managerNotes: 'تم رفض التعديل الأخير، يرجى مراجعة البيانات وإعادة الإرسال بدقة.',
+      );
+      _closeLoadingAndShowSnackBar('تم رفض التعديل وإعادته للمحصل', Colors.orange);
+    } catch (e) {
+      _closeLoadingAndShowSnackBar('حدث خطأ أثناء الرفض', Colors.red);
+    }
+  }
+
+  // --- دوال مساعدة ---
+  
+  void _showLoadingDialog() {
+    showDialog(
       context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: const Text('طلب تعديل السند', style: TextStyle(color: Colors.orange)),
-          content: TextField(
-            controller: notesController,
-            maxLines: 3,
-            decoration: const InputDecoration(
-              hintText: 'اكتب التعديلات المطلوبة (مثال: يرجى التأكد من المبلغ المدخل)...',
-              border: OutlineInputBorder(),
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('إلغاء'),
-            ),
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(backgroundColor: Colors.orange),
-              onPressed: () async {
-                if (notesController.text.trim().isEmpty) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('يجب إدخال التعديلات المطلوبة ليقرأها المحصل')),
-                  );
-                  return;
-                }
-                
-                Navigator.pop(context);
-                showDialog(
-                  context: context,
-                  barrierDismissible: false,
-                  builder: (context) => const Center(child: CircularProgressIndicator()),
-                );
-
-                try {
-                  // تحديث الحالة إلى "مطلوب تعديل من المحصل"
-                  await _dbService.updateTransactionStatus(
-                    transactionId: transactionId,
-                    newStatus: 'editRequestedByCollector',
-                    managerNotes: notesController.text.trim(),
-                  );
-                  
-                  if (mounted) {
-                    Navigator.pop(context);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('تم إرسال طلب تعديل للسند $trnNumber'), backgroundColor: Colors.orange),
-                    );
-                  }
-                } catch (e) {
-                  if (mounted) {
-                    Navigator.pop(context);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('حدث خطأ أثناء إرسال طلب التعديل'), backgroundColor: Colors.red),
-                    );
-                  }
-                }
-              },
-              child: const Text('إرسال للمحصل', style: TextStyle(color: Colors.white)),
-            ),
-          ],
-        );
-      },
+      barrierDismissible: false,
+      builder: (context) => const Center(child: CircularProgressIndicator()),
     );
+  }
+
+  void _closeLoadingAndShowSnackBar(String message, Color color) {
+    if (mounted) {
+      Navigator.pop(context); // إغلاق التحميل
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message), backgroundColor: color));
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Directionality(
       textDirection: TextDirection.rtl,
-      child: Scaffold(
-        appBar: AppBar(
-          title: Text('طلبات الاعتماد - ${widget.branchName}'),
-          backgroundColor: Colors.amber.shade800,
-        ),
-        body: StreamBuilder<QuerySnapshot>(
-          stream: _dbService.getBranchTransactions(
-            branchId: widget.branchId,
-            status: 'pending',
+      // استخدام DefaultTabController لإدارة التبويبات بسهولة
+      child: DefaultTabController(
+        length: 2,
+        child: Scaffold(
+          appBar: AppBar(
+            title: Text('طلبات الاعتماد - ${widget.branchName}'),
+            backgroundColor: Colors.amber.shade800,
+            bottom: const TabBar(
+              indicatorColor: Colors.white,
+              indicatorWeight: 3,
+              labelStyle: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              tabs: [
+                Tab(text: 'سندات جديدة', icon: Icon(Icons.new_releases)),
+                Tab(text: 'طلبات تعديل', icon: Icon(Icons.edit_notifications)),
+              ],
+            ),
           ),
-          builder: (context, snapshot) {
-            if (snapshot.connectionState == ConnectionState.waiting) {
-              return const Center(child: CircularProgressIndicator());
-            }
+          body: TabBarView(
+            children: [
+              _buildNewTransactionsTab(),
+              _buildEditRequestsTab(),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 
-            if (snapshot.hasError) {
-              return const Center(
-                child: Text('حدث خطأ في جلب البيانات، تأكد من الفهارس (Indexes).', style: TextStyle(color: Colors.red)),
-              );
-            }
+  // 1. تبويبة السندات الجديدة
+  Widget _buildNewTransactionsTab() {
+    return StreamBuilder<QuerySnapshot>(
+      stream: _dbService.getBranchTransactions(
+        branchId: widget.branchId,
+        status: 'pending', // السندات الجديدة
+      ),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
+        if (snapshot.hasError) return const Center(child: Text('حدث خطأ في جلب البيانات.', style: TextStyle(color: Colors.red)));
+        if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+          return const Center(child: Text('لا توجد طلبات اعتماد معلقة حالياً!', style: TextStyle(fontSize: 18, color: Colors.grey)));
+        }
 
-            if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-              return Center(
+        final transactions = snapshot.data!.docs;
+
+        return ListView.builder(
+          padding: const EdgeInsets.all(10),
+          itemCount: transactions.length,
+          itemBuilder: (context, index) {
+            final doc = transactions[index];
+            final data = doc.data() as Map<String, dynamic>;
+
+            final double amount = (data['amount'] as num?)?.toDouble() ?? 0.0;
+            final String currency = data['currency'] ?? 'YER';
+            final String trnNumber = data['transaction_number'] ?? '#';
+
+            return Card(
+              elevation: 3,
+              margin: const EdgeInsets.only(bottom: 15),
+              child: Padding(
+                padding: const EdgeInsets.all(15.0),
                 child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Icon(Icons.check_circle_outline, size: 80, color: Colors.green.shade300),
-                    const SizedBox(height: 15),
-                    const Text('لا توجد طلبات اعتماد معلقة حالياً!', style: TextStyle(fontSize: 18, color: Colors.grey)),
-                  ],
-                ),
-              );
-            }
-
-            final transactions = snapshot.data!.docs;
-
-            return ListView.builder(
-              padding: const EdgeInsets.all(10),
-              itemCount: transactions.length,
-              itemBuilder: (context, index) {
-                final doc = transactions[index];
-                final data = doc.data() as Map<String, dynamic>;
-
-                final double rawAmount = (data['amount'] as num?)?.toDouble() ?? 0.0;
-                final String formattedAmount = NumberFormat('#,##0.##', 'en_US').format(rawAmount);
-                final String currency = data['currency'] ?? 'YER';
-                final String trnNumber = data['transaction_number'] ?? '#';
-                final String notes = data['notes'] ?? 'لا توجد ملاحظات';
-                
-                final dateFrom = (data['dateFrom'] as Timestamp?)?.toDate();
-                final dateTo = (data['dateTo'] as Timestamp?)?.toDate();
-                
-                String dateRange = 'غير محدد';
-                if (dateFrom != null && dateTo != null) {
-                  dateRange = '${DateFormat('yyyy/MM/dd').format(dateFrom)} إلى ${DateFormat('yyyy/MM/dd').format(dateTo)}';
-                }
-
-                return Card(
-                  elevation: 3,
-                  margin: const EdgeInsets.only(bottom: 15),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  child: Padding(
-                    padding: const EdgeInsets.all(15.0),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Text('رقم السند: $trnNumber', style: const TextStyle(color: Colors.grey, fontWeight: FontWeight.bold)),
-                            Text(
-                              '$formattedAmount $currency',
-                              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.blue),
-                            ),
-                          ],
+                        Text('رقم السند: $trnNumber', style: const TextStyle(color: Colors.grey, fontWeight: FontWeight.bold)),
+                        Text('${NumberFormat('#,##0.##', 'en_US').format(amount)} $currency',
+                          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.blue)),
+                      ],
+                    ),
+                    const SizedBox(height: 20),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: ElevatedButton.icon(
+                            onPressed: () => _approveNewTransaction(doc.id, trnNumber),
+                            icon: const Icon(Icons.check, color: Colors.white),
+                            label: const Text('اعتماد', style: TextStyle(color: Colors.white)),
+                            style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
+                          ),
                         ),
-                        const Divider(height: 20),
-                        
-                        Row(
-                          children: [
-                            const Icon(Icons.calendar_month, size: 18, color: Colors.grey),
-                            const SizedBox(width: 8),
-                            Text('الفترة: $dateRange', style: const TextStyle(fontSize: 14)),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-                        Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Icon(Icons.notes, size: 18, color: Colors.grey),
-                            const SizedBox(width: 8),
-                            Expanded(child: Text('ملاحظات المحصل: $notes', style: const TextStyle(fontSize: 14))),
-                          ],
-                        ),
-                        
-                        const SizedBox(height: 20),
-                        
-                        // أزرار الإجراءات بعد التعديل
-                        Column(
-                          children: [
-                            // الصف الأول: قبول ورفض
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: ElevatedButton.icon(
-                                    onPressed: () => _approveTransaction(doc.id, trnNumber),
-                                    icon: const Icon(Icons.check, color: Colors.white),
-                                    label: const Text('اعتماد', style: TextStyle(color: Colors.white)),
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor: Colors.green,
-                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(width: 10),
-                                Expanded(
-                                  child: OutlinedButton.icon(
-                                    onPressed: () => _rejectTransaction(doc.id, trnNumber),
-                                    icon: const Icon(Icons.close, color: Colors.red),
-                                    label: const Text('رفض', style: TextStyle(color: Colors.red)),
-                                    style: OutlinedButton.styleFrom(
-                                      side: const BorderSide(color: Colors.red),
-                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 10),
-                            // الصف الثاني: طلب التعديل
-                            SizedBox(
-                              width: double.infinity,
-                              height: 45,
-                              child: ElevatedButton.icon(
-                                onPressed: () => _requestEditTransaction(doc.id, trnNumber),
-                                icon: const Icon(Icons.edit_note, color: Colors.white),
-                                label: const Text('طلب تعديل من المحصل', style: TextStyle(color: Colors.white, fontSize: 16)),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: Colors.orange,
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                                ),
-                              ),
-                            ),
-                          ],
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: () => _rejectTransaction(doc.id, trnNumber, 'reject'),
+                            icon: const Icon(Icons.close, color: Colors.red),
+                            label: const Text('رفض', style: TextStyle(color: Colors.red)),
+                            style: OutlinedButton.styleFrom(side: const BorderSide(color: Colors.red)),
+                          ),
                         ),
                       ],
                     ),
-                  ),
-                );
-              },
+                    const SizedBox(height: 10),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        onPressed: () => _rejectTransaction(doc.id, trnNumber, 'edit'),
+                        icon: const Icon(Icons.edit_note, color: Colors.white),
+                        label: const Text('طلب تعديل من المحصل', style: TextStyle(color: Colors.white)),
+                        style: ElevatedButton.styleFrom(backgroundColor: Colors.orange),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             );
           },
-        ),
+        );
+      },
+    );
+  }
+
+  // 2. تبويبة طلبات التعديل
+  Widget _buildEditRequestsTab() {
+    return StreamBuilder<QuerySnapshot>(
+      stream: _dbService.getBranchTransactions(
+        branchId: widget.branchId,
+        status: 'pendingApprovalOfEdit', // السندات التي تم تعديلها وبانتظار الموافقة
       ),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
+        if (snapshot.hasError) return const Center(child: Text('حدث خطأ في جلب البيانات.', style: TextStyle(color: Colors.red)));
+        if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+          return const Center(child: Text('لا توجد طلبات تعديل للمراجعة.', style: TextStyle(fontSize: 18, color: Colors.grey)));
+        }
+
+        final transactions = snapshot.data!.docs;
+
+        return ListView.builder(
+          padding: const EdgeInsets.all(10),
+          itemCount: transactions.length,
+          itemBuilder: (context, index) {
+            final doc = transactions[index];
+            final data = doc.data() as Map<String, dynamic>;
+            final pendingData = data['pending_edit_data'] as Map<String, dynamic>? ?? {};
+
+            final String trnNumber = data['transaction_number'] ?? '#';
+            
+            // البيانات القديمة
+            final double oldAmount = (data['amount'] as num?)?.toDouble() ?? 0.0;
+            final String oldCurrency = data['currency'] ?? 'YER';
+            
+            // البيانات الجديدة
+            final double newAmount = (pendingData['amount'] as num?)?.toDouble() ?? 0.0;
+            final String newCurrency = pendingData['currency'] ?? oldCurrency;
+            final String newNotes = pendingData['notes'] ?? 'لا توجد ملاحظات للتعديل';
+
+            return Card(
+              elevation: 4,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+                side: BorderSide(color: Colors.amber.shade300, width: 2),
+              ),
+              margin: const EdgeInsets.only(bottom: 15),
+              child: Padding(
+                padding: const EdgeInsets.all(15.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('رقم السند: $trnNumber', style: const TextStyle(color: Colors.grey, fontWeight: FontWeight.bold)),
+                    const Divider(height: 20),
+                    
+                    // المقارنة بين القديم والجديد
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(color: Colors.red.shade50, borderRadius: BorderRadius.circular(8)),
+                            child: Column(
+                              children: [
+                                const Text('المبلغ القديم', style: TextStyle(color: Colors.red, fontSize: 12)),
+                                Text('${NumberFormat('#,##0.##', 'en_US').format(oldAmount)} $oldCurrency',
+                                  style: const TextStyle(fontWeight: FontWeight.bold, decoration: TextDecoration.lineThrough)),
+                              ],
+                            ),
+                          ),
+                        ),
+                        const Padding(
+                          padding: EdgeInsets.symmetric(horizontal: 8.0),
+                          child: Icon(Icons.arrow_forward, color: Colors.grey),
+                        ),
+                        Expanded(
+                          child: Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(color: Colors.green.shade50, borderRadius: BorderRadius.circular(8)),
+                            child: Column(
+                              children: [
+                                const Text('المبلغ المقترح', style: TextStyle(color: Colors.green, fontSize: 12)),
+                                Text('${NumberFormat('#,##0.##', 'en_US').format(newAmount)} $newCurrency',
+                                  style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.green)),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    Text('ملاحظات المحصل للتعديل: $newNotes', style: const TextStyle(fontSize: 14)),
+                    
+                    const SizedBox(height: 20),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: ElevatedButton.icon(
+                            onPressed: () => _approveEdit(doc.id, trnNumber, pendingData),
+                            icon: const Icon(Icons.check_circle, color: Colors.white),
+                            label: const Text('اعتماد التعديل', style: TextStyle(color: Colors.white)),
+                            style: ElevatedButton.styleFrom(backgroundColor: Colors.teal),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: () => _rejectEdit(doc.id, trnNumber),
+                            icon: const Icon(Icons.cancel, color: Colors.red),
+                            label: const Text('رفض وإعادة', style: TextStyle(color: Colors.red)),
+                            style: OutlinedButton.styleFrom(side: const BorderSide(color: Colors.red)),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
     );
   }
 }

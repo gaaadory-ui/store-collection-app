@@ -26,10 +26,16 @@ class CollectorDashboard extends StatelessWidget {
           centerTitle: true,
           actions: [
             IconButton(
-              icon: const Icon(Icons.logout),
-              onPressed: () => FirebaseAuth.instance.signOut(),
-              tooltip: 'تسجيل الخروج',
-            )
+  icon: const Icon(Icons.logout),
+  tooltip: 'تسجيل الخروج',
+  onPressed: () async {
+    await FirebaseAuth.instance.signOut();
+    if (context.mounted) {
+      // هذا السطر السحري يقوم بإغلاق جميع الشاشات المتراكمة والعودة للشاشة الرئيسية (AuthGate)
+      Navigator.of(context).popUntil((route) => route.isFirst);
+    }
+  },
+)
           ],
         ),
         body: SingleChildScrollView(

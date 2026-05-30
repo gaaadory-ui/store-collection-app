@@ -16,18 +16,44 @@ class CollectorEditRequestsScreen extends StatefulWidget {
 class _CollectorEditRequestsScreenState extends State<CollectorEditRequestsScreen> {
   final DatabaseService _dbService = DatabaseService();
 
-  // دالة لإظهار نافذة التعديل وإعادة الإرسال
+  // دالة التقويم الذكي
+  Future<void> _pickDate(BuildContext context, bool isFromDate, DateTime? currentFrom, DateTime? currentTo, Function(DateTime) onPicked) async {
+    DateTime initialDate = DateTime.now();
+    DateTime firstDate = DateTime(2020);
+    DateTime lastDate = DateTime.now().add(const Duration(days: 365));
+
+    if (isFromDate) {
+      if (currentTo != null) lastDate = currentTo;
+      initialDate = currentFrom ?? DateTime.now();
+      if (initialDate.isAfter(lastDate)) initialDate = lastDate;
+    } else {
+      if (currentFrom != null) firstDate = currentFrom;
+      initialDate = currentTo ?? currentFrom ?? DateTime.now();
+      if (initialDate.isBefore(firstDate)) initialDate = firstDate;
+    }
+
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: initialDate,
+      firstDate: firstDate,
+      lastDate: lastDate,
+    );
+    if (picked != null) onPicked(picked);
+  }
+
+  // 1. دالة تعديل السند
   void _showEditDialog(BuildContext context, String transactionId, Map<String, dynamic> currentData) {
-    // تجهيز البيانات الحالية في الحقول
     final TextEditingController amountController = TextEditingController(text: currentData['amount'].toString());
     final TextEditingController notesController = TextEditingController(text: currentData['notes'] ?? '');
     String selectedCurrency = currentData['currency'] ?? 'YER';
     DateTime dateFrom = (currentData['dateFrom'] as Timestamp?)?.toDate() ?? DateTime.now();
     DateTime dateTo = (currentData['dateTo'] as Timestamp?)?.toDate() ?? DateTime.now();
+    
+    bool isSaving = false; 
 
     showDialog(
       context: context,
-      barrierDismissible: false,
+      barrierDismissible: false, 
       builder: (context) {
         return StatefulBuilder(
           builder: (context, setDialogState) {
@@ -37,15 +63,8 @@ class _CollectorEditRequestsScreenState extends State<CollectorEditRequestsScree
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    // حقل المبلغ
-                    TextField(
-                      controller: amountController,
-                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                      decoration: const InputDecoration(labelText: 'المبلغ', border: OutlineInputBorder()),
-                    ),
+                    TextField(controller: amountController, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'المبلغ', border: OutlineInputBorder())),
                     const SizedBox(height: 15),
-
-                    // اختيار العملة
                     DropdownButtonFormField<String>(
                       decoration: const InputDecoration(labelText: 'العملة', border: OutlineInputBorder()),
                       value: selectedCurrency,
@@ -54,104 +73,64 @@ class _CollectorEditRequestsScreenState extends State<CollectorEditRequestsScree
                         DropdownMenuItem(value: 'SAR', child: Text('ريال سعودي (SAR)')),
                         DropdownMenuItem(value: 'USD', child: Text('دولار (USD)')),
                       ],
-                      onChanged: (val) {
-                        if (val != null) setDialogState(() => selectedCurrency = val);
-                      },
+                      onChanged: (val) { if (val != null) setDialogState(() => selectedCurrency = val); },
                     ),
                     const SizedBox(height: 15),
-
-                    // تاريخ البداية
                     ListTile(
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(5), side: BorderSide(color: Colors.grey.shade400)),
                       title: Text('من: ${DateFormat('yyyy/MM/dd').format(dateFrom)}'),
                       trailing: const Icon(Icons.calendar_today),
-                      onTap: () async {
-                        final picked = await showDatePicker(
-                          context: context,
-                          initialDate: dateFrom,
-                          firstDate: DateTime(2020),
-                          lastDate: DateTime.now(),
-                        );
-                        if (picked != null) setDialogState(() => dateFrom = picked);
-                      },
+                      onTap: () => _pickDate(context, true, dateFrom, dateTo, (picked) => setDialogState(() => dateFrom = picked)),
                     ),
                     const SizedBox(height: 10),
-
-                    // تاريخ النهاية
                     ListTile(
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(5), side: BorderSide(color: Colors.grey.shade400)),
                       title: Text('إلى: ${DateFormat('yyyy/MM/dd').format(dateTo)}'),
                       trailing: const Icon(Icons.calendar_today),
-                      onTap: () async {
-                        final picked = await showDatePicker(
-                          context: context,
-                          initialDate: dateTo,
-                          firstDate: DateTime(2020),
-                          lastDate: DateTime.now(),
-                        );
-                        if (picked != null) setDialogState(() => dateTo = picked);
-                      },
+                      onTap: () => _pickDate(context, false, dateFrom, dateTo, (picked) => setDialogState(() => dateTo = picked)),
                     ),
                     const SizedBox(height: 15),
-
-                    // حقل الملاحظات
-                    TextField(
-                      controller: notesController,
-                      maxLines: 2,
-                      decoration: const InputDecoration(labelText: 'ملاحظات المحصل', border: OutlineInputBorder()),
-                    ),
+                    TextField(controller: notesController, maxLines: 2, decoration: const InputDecoration(labelText: 'ملاحظات المحصل', border: OutlineInputBorder())),
                   ],
                 ),
               ),
               actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text('إلغاء', style: TextStyle(color: Colors.red)),
-                ),
+                TextButton(onPressed: isSaving ? null : () => Navigator.pop(context), child: const Text('إلغاء', style: TextStyle(color: Colors.red))),
                 ElevatedButton(
                   style: ElevatedButton.styleFrom(backgroundColor: Colors.teal),
-                  onPressed: () async {
+                  onPressed: isSaving ? null : () async {
                     if (amountController.text.trim().isEmpty) return;
                     
                     final double? amount = double.tryParse(amountController.text.trim());
                     if (amount == null) return;
 
-                    Navigator.pop(context); // إغلاق نافذة التعديل
-                    
-                    // عرض مؤشر التحميل
-                    showDialog(
-                      context: context,
-                      barrierDismissible: false,
-                      builder: (context) => const Center(child: CircularProgressIndicator()),
-                    );
+                    if (dateTo.isBefore(dateFrom)) {
+                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تاريخ (إلى) يجب أن يكون بعد أو يساوي تاريخ (من)'), backgroundColor: Colors.red));
+                      return;
+                    }
+
+                    setDialogState(() => isSaving = true); 
 
                     try {
-                      // استبدل استدعاء resubmitTransaction بهذا الاستدعاء الجديد:
-                        await _dbService.submitEditedTransaction(
-                          transactionId: transactionId,
-                          newAmount: amount,
-                          newCurrency: selectedCurrency,
-                          newDateFrom: dateFrom,
-                          newDateTo: dateTo,
-                          newNotes: notesController.text.trim(),
-                        );
+                      await _dbService.submitEditedTransaction(
+                        transactionId: transactionId,
+                        newAmount: amount,
+                        newCurrency: selectedCurrency,
+                        newDateFrom: dateFrom,
+                        newDateTo: dateTo,
+                        newNotes: notesController.text.trim(),
+                      );
                       
                       if (context.mounted) {
-                        Navigator.pop(context); // إغلاق التحميل
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('تم تعديل السند وإعادة إرساله للمدير بنجاح'), backgroundColor: Colors.green),
-                        );
+                        Navigator.pop(context); 
+                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تم تعديل السند وإعادة إرساله بنجاح'), backgroundColor: Colors.green));
                       }
                     } catch (e) {
-                      if (context.mounted) {
-                        Navigator.pop(context);
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('حدث خطأ أثناء التعديل'), backgroundColor: Colors.red),
-                        );
-                      }
+                      setDialogState(() => isSaving = false); 
+                      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('حدث خطأ أثناء التعديل'), backgroundColor: Colors.red));
                     }
                   },
-                  child: const Text('حفظ وإرسال', style: TextStyle(color: Colors.white)),
+                  child: isSaving ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)) : const Text('حفظ وإرسال', style: TextStyle(color: Colors.white)),
                 ),
               ],
             );
@@ -161,32 +140,80 @@ class _CollectorEditRequestsScreenState extends State<CollectorEditRequestsScree
     );
   }
 
+  // 2. دالة رفض طلب التعديل (في حال كان السند صحيحاً من وجهة نظر المحصل)
+  Future<void> _rejectEditRequest(String transactionId, Map<String, dynamic> data) async {
+    TextEditingController reasonController = TextEditingController();
+    bool isSubmitting = false;
+
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: const Text('رفض طلب التعديل', style: TextStyle(color: Colors.red)),
+              content: TextField(
+                controller: reasonController,
+                maxLines: 2,
+                decoration: const InputDecoration(hintText: 'اكتب سبب رفضك (مثلاً: السند والمبلغ صحيح)...', border: OutlineInputBorder()),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: isSubmitting ? null : () => Navigator.pop(context), 
+                  child: const Text('إلغاء')
+                ),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+                  onPressed: isSubmitting ? null : () async {
+                    if (reasonController.text.trim().isEmpty) {
+                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('الرجاء كتابة السبب')));
+                      return;
+                    }
+                    
+                    setDialogState(() => isSubmitting = true);
+                    
+                    // العودة للحالة السابقة (إذا كان الطلب من المحاسب يعود للمحاسب، وإذا من المدير يعود للمدير)
+                    String returnStatus = data['previous_status'] ?? 'pending'; 
+                    
+                    try {
+                      await _dbService.rejectEditRequestByCollector(
+                        transactionId: transactionId,
+                        rejectReason: reasonController.text.trim(),
+                        returnToStatus: returnStatus,
+                      );
+                      if (mounted) {
+                        Navigator.pop(context);
+                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تم إرسال الرد بنجاح'), backgroundColor: Colors.green));
+                      }
+                    } catch (e) {
+                      setDialogState(() => isSubmitting = false);
+                      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('حدث خطأ'), backgroundColor: Colors.red));
+                    }
+                  },
+                  child: isSubmitting 
+                    ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                    : const Text('تأكيد الرفض', style: TextStyle(color: Colors.white)),
+                )
+              ]
+            );
+          }
+        );
+      }
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Directionality(
       textDirection: TextDirection.rtl,
       child: Scaffold(
-        appBar: AppBar(
-          title: const Text('سندات تتطلب تعديلاً'),
-          backgroundColor: Colors.orange.shade700,
-        ),
+        appBar: AppBar(title: const Text('سندات تتطلب تعديلاً'), backgroundColor: Colors.orange.shade700),
         body: StreamBuilder<QuerySnapshot>(
-          // نجلب السندات التي طُلب تعديلها فقط
-          stream: _dbService.getBranchTransactions(
-            branchId: widget.branchId,
-            status: 'editRequestedByCollector',
-          ),
+          stream: _dbService.getBranchTransactions(branchId: widget.branchId, status: 'editRequestedByCollector'),
           builder: (context, snapshot) {
-            if (snapshot.connectionState == ConnectionState.waiting) {
-              return const Center(child: CircularProgressIndicator());
-            }
-
-            if (snapshot.hasError) {
-              return const Center(
-                child: Text('حدث خطأ في جلب البيانات.', style: TextStyle(color: Colors.red)),
-              );
-            }
-
+            if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
+            if (snapshot.hasError) return const Center(child: Text('حدث خطأ في جلب البيانات.', style: TextStyle(color: Colors.red)));
             if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
               return Center(
                 child: Column(
@@ -213,15 +240,12 @@ class _CollectorEditRequestsScreenState extends State<CollectorEditRequestsScree
                 final String formattedAmount = NumberFormat('#,##0.##', 'en_US').format(rawAmount);
                 final String currency = data['currency'] ?? 'YER';
                 final String trnNumber = data['transaction_number'] ?? '#';
-                final String managerNotes = data['manager_notes'] ?? 'لا توجد ملاحظات من المدير';
+                final String managerNotes = data['manager_notes'] ?? 'لا توجد ملاحظات مرفقة';
                 
                 return Card(
                   elevation: 3,
                   margin: const EdgeInsets.only(bottom: 15),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    side: BorderSide(color: Colors.orange.shade300, width: 1),
-                  ),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: Colors.orange.shade300, width: 1)),
                   child: Padding(
                     padding: const EdgeInsets.all(15.0),
                     child: Column(
@@ -231,23 +255,14 @@ class _CollectorEditRequestsScreenState extends State<CollectorEditRequestsScree
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
                             Text('رقم السند: $trnNumber', style: const TextStyle(color: Colors.grey, fontWeight: FontWeight.bold)),
-                            Text(
-                              '$formattedAmount $currency',
-                              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                            ),
+                            Text('$formattedAmount $currency', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                           ],
                         ),
                         const Divider(height: 20),
-                        
-                        // عرض رسالة المدير (سبب طلب التعديل)
                         Container(
                           width: double.infinity,
                           padding: const EdgeInsets.all(10),
-                          decoration: BoxDecoration(
-                            color: Colors.orange.shade50,
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(color: Colors.orange.shade200),
-                          ),
+                          decoration: BoxDecoration(color: Colors.orange.shade50, borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.orange.shade200)),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
@@ -255,7 +270,7 @@ class _CollectorEditRequestsScreenState extends State<CollectorEditRequestsScree
                                 children: [
                                   Icon(Icons.warning_amber_rounded, color: Colors.orange.shade800, size: 20),
                                   const SizedBox(width: 8),
-                                  Text('مطلوب تعديل من الإدارة:', style: TextStyle(color: Colors.orange.shade800, fontWeight: FontWeight.bold)),
+                                  Text('السبب / ملاحظات التعديل:', style: TextStyle(color: Colors.orange.shade800, fontWeight: FontWeight.bold)),
                                 ],
                               ),
                               const SizedBox(height: 5),
@@ -263,22 +278,30 @@ class _CollectorEditRequestsScreenState extends State<CollectorEditRequestsScree
                             ],
                           ),
                         ),
-                        
                         const SizedBox(height: 15),
-                        
-                        // زر فتح شاشة التعديل
-                        SizedBox(
-                          width: double.infinity,
-                          child: ElevatedButton.icon(
-                            onPressed: () => _showEditDialog(context, doc.id, data),
-                            icon: const Icon(Icons.edit, color: Colors.white),
-                            label: const Text('تعديل وإعادة إرسال', style: TextStyle(color: Colors.white, fontSize: 16)),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.teal,
-                              padding: const EdgeInsets.symmetric(vertical: 12),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                        // أزرار الإجراءات (تعديل أو رفض)
+                        Row(
+                          children: [
+                            Expanded(
+                              flex: 2,
+                              child: ElevatedButton.icon(
+                                onPressed: () => _showEditDialog(context, doc.id, data),
+                                icon: const Icon(Icons.edit, color: Colors.white, size: 20),
+                                label: const Text('تعديل وإرسال', style: TextStyle(color: Colors.white)),
+                                style: ElevatedButton.styleFrom(backgroundColor: Colors.teal, padding: const EdgeInsets.symmetric(vertical: 12), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
+                              ),
                             ),
-                          ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              flex: 1,
+                              child: OutlinedButton.icon(
+                                onPressed: () => _rejectEditRequest(doc.id, data),
+                                icon: const Icon(Icons.cancel, color: Colors.red, size: 20),
+                                label: const Text('أرفض', style: TextStyle(color: Colors.red)),
+                                style: OutlinedButton.styleFrom(side: const BorderSide(color: Colors.red), padding: const EdgeInsets.symmetric(vertical: 12), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
+                              ),
+                            ),
+                          ],
                         ),
                       ],
                     ),

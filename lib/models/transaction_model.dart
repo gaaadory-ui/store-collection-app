@@ -3,17 +3,19 @@ import 'package:store_collection_app/models/enums.dart';
 
 class TransactionModel {
   final String id;
-  final String transactionNumber; // تم التعديل
+  final String transactionNumber;
   final String branchId;
   final String collectorId;
   final double amount;
   final DateTime dateFrom;
   final DateTime dateTo;
-  final DateTime transactionDate; // تم التعديل
+  final DateTime transactionDate;
   final String notes;
   final TransactionStatus status;
   final DateTime timestamp;
   final String currency;
+  final Map<String, dynamic>? pendingEditData;
+  final List<Map<String, dynamic>>? history; // تمت إضافة هذا الحقل
 
   TransactionModel({
     required this.id,
@@ -28,6 +30,8 @@ class TransactionModel {
     required this.status,
     required this.timestamp,
     required this.currency,
+    this.pendingEditData, // تمت الإضافة
+    this.history,
   });
 
   factory TransactionModel.fromJson(Map<String, dynamic> json) {
@@ -44,11 +48,13 @@ class TransactionModel {
       status: TransactionStatus.values.firstWhere((e) => e.name == json['status']),
       timestamp: (json['timestamp'] as Timestamp).toDate(),
       currency: json['currency'] ?? 'YER',
+      pendingEditData: json['pending_edit_data'], // قراءة التعديلات المعلقة
+      
     );
   }
 
   Map<String, dynamic> toJson() {
-    return {
+    final Map<String, dynamic> data = {
       'id': id,
       'transaction_number': transactionNumber,
       'branchId': branchId,
@@ -61,6 +67,14 @@ class TransactionModel {
       'status': status.name,
       'timestamp': Timestamp.fromDate(timestamp),
       'currency': currency,
+      'history': history,
     };
+    
+    // إضافة الحقل فقط إذا كان يحتوي على بيانات
+    if (pendingEditData != null) {
+      data['pending_edit_data'] = pendingEditData;
+    }
+    
+    return data;
   }
 }
